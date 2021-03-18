@@ -1,1 +1,2 @@
 C:\Users\EL-S\source\repos\VanityGenCoinyeSimple\VanityGenCoinyeSimple\Debug\VanityGenCoinyeSimple.vcxproj.CopyComplete
+C:\Users\EL-S\Desktop\Programming\VanityGenCOYE\cpp\VanityGenCoinyeSimple\VanityGenCoinyeSimple\Debug\VanityGenCoinyeSimple.vcxproj.CopyComplete

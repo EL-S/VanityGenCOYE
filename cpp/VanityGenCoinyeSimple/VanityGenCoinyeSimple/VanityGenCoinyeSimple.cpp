@@ -12,6 +12,7 @@
 #include "openssl/ripemd.h"
 #include <openssl/evp.h>
 #include <openssl/crypto.h>
+#include <openssl/rand.h>
 
 using namespace std;
 
@@ -80,25 +81,11 @@ string to_hex(unsigned char s) {
     stringstream ss;
     ss << hex << (int)s;
     string output = ss.str();
-    output.insert(0, 2- output.length(), '0');
+    output.insert(0, 2 - output.length(), '0');
     return output;
 }
 
-string sha256(string line) {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, line.c_str(), line.length());
-    SHA256_Final(hash, &sha256);
-
-    string output = "";
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-        output += to_hex(hash[i]);
-    }
-    return output;
-}
-
-string sha256_different(string strHex) {
+string sha256(string strHex) {
     // convert to blob. returns dynamic memory allocated with
     //  OPENSSL_malloc. Use OPENSSL_free to destroy it.
     long len = 0;
@@ -121,48 +108,34 @@ string sha256_different(string strHex) {
     return output;
 }
 
-string ripemd160(string line)
-{
+string ripemd160(string strHex) {
+    // convert to blob. returns dynamic memory allocated with
+    //  OPENSSL_malloc. Use OPENSSL_free to destroy it.
+    long len = 0;
+    unsigned char* bin = OPENSSL_hexstr2buf(strHex.c_str(), &len);
+
     unsigned char hash[RIPEMD160_DIGEST_LENGTH];
     RIPEMD160_CTX ripemd160;
     RIPEMD160_Init(&ripemd160);
-    RIPEMD160_Update(&ripemd160, line.c_str(), line.length());
+    RIPEMD160_Update(&ripemd160, bin, len);
     RIPEMD160_Final(hash, &ripemd160);
+
+    // free the input data.
+    OPENSSL_free(bin);
 
     string output = "";
     for (int i = 0; i < RIPEMD160_DIGEST_LENGTH; i++) {
         output += to_hex(hash[i]);
     }
+
     return output;
-
-    //for (int i = 0; i < RIPEMD160_DIGEST_LENGTH; i++)
-    //{
-    //    sprintf_s(outputBuffer + (i * 2), sizeof(outputBuffer + (i * 2)), "%02x", hash[i]);
-    //}
-    //outputBuffer[40] = 0;
-}
-
-std::vector<char> HexToBytes(const std::string& hex) {
-    std::vector<char> bytes;
-
-    for (unsigned int i = 0; i < hex.length(); i += 2) {
-        std::string byteString = hex.substr(i, 2);
-        char byte = (char)strtol(byteString.c_str(), NULL, 16);
-        bytes.push_back(byte);
-    }
-
-    return bytes;
 }
 
 string privateKey_to_WIF_coinye(string pk) {
     string base = "8b" + pk + "01";
-    cout << base << endl;
-    string privWIF1 = sha256_different(base);
-    cout << privWIF1 << endl;
-    string privWIF2 = sha256_different(privWIF1);
-    cout << privWIF2 << endl;
+    string privWIF1 = sha256(base);
+    string privWIF2 = sha256(privWIF1);
     string privWIF3 = base + privWIF2.substr(0, 8);
-    cout << privWIF3 << endl;
     const char* phex = privWIF3.c_str();
     std::string ret = b58(phex);
     return ret;
@@ -176,8 +149,8 @@ string private_to_compressed_public(string pk) {
 }
 
 string public_to_address_coinye(string compressed_pk) {
-    string network_bitcoin_public_key = "0b" + ripemd160(sha256_different(compressed_pk));
-    string sha256_2_hex = sha256_different(sha256_different(network_bitcoin_public_key));
+    string network_bitcoin_public_key = "0b" + ripemd160(sha256(compressed_pk));
+    string sha256_2_hex = sha256(sha256(network_bitcoin_public_key));
     string checksum = sha256_2_hex.substr(0, 8);
     std::string address_hex = network_bitcoin_public_key + checksum;
     const char* phex = address_hex.c_str();
@@ -185,59 +158,49 @@ string public_to_address_coinye(string compressed_pk) {
     return ret;
 }
 
+void make_coinye_address(string* private_key, string* compressed_address) {
+    unsigned char rnd[32];
+    RAND_bytes(rnd, sizeof(rnd));
+
+    *private_key = "";
+    for (int i = 0; i < sizeof(rnd); i++) {
+        *private_key += to_hex(rnd[i]);
+    }
+    string compressed_public_key = private_to_compressed_public(*private_key);
+    *compressed_address = public_to_address_coinye(compressed_public_key);
+    //free(compressed_public_key);
+    return;
+}
+
+bool iequals(const string& a, const string& b)
+{
+    return std::equal(a.begin(), a.end(),
+        b.begin(), b.end(),
+        [](char a, char b) {
+            return tolower(a) == tolower(b);
+        });
+}
+
+string find_vanity(string vanity_prefix) {
+    string private_key;
+    string wallet_address;
+    int prefix_len = vanity_prefix.length();
+    do {
+        make_coinye_address(&private_key, &wallet_address);
+    }
+    while (!iequals(wallet_address.substr(1, prefix_len), vanity_prefix));
+    //while (wallet_address.compare(1, prefix_len, vanity_prefix));
+    return private_key;
+}
+
 int main()
 {
-
-    // This is the same as
-    // compressed_public_key = private_to_compressed_public(key)
-    std::string private_key = "1af67944a84a800ac9a96a59c4a7934988e3ef93a850a1d5ff219661c12c37c4";
-    cout << private_key << endl;
-
+    string private_key = find_vanity("gay");
     string compressed_public_key = private_to_compressed_public(private_key);
-    cout << compressed_public_key << endl;
-
     string compressed_address = public_to_address_coinye(compressed_public_key);
-    cout << compressed_address << endl;
-
     string WIF_address = privateKey_to_WIF_coinye(private_key);
+    cout << compressed_address << endl;
     cout << WIF_address << endl;
 
     return 0;
 }
-
-/*
-bool EC_KEY_regenerate_key(EC_KEY* p_key, BIGNUM* p_priv_key)
-{
-    bool okay = false;
-
-    BN_CTX* p_ctx = 0;
-    EC_POINT* p_pub_key = 0;
-
-    if (p_key)
-    {
-        const EC_GROUP* p_group = EC_KEY_get0_group(p_key);
-
-        if ((p_ctx = BN_CTX_new()) != 0)
-        {
-            p_pub_key = EC_POINT_new(p_group);
-
-            if (p_pub_key)
-            {
-                if (EC_POINT_mul(p_group, p_pub_key, p_priv_key, 0, 0, p_ctx))
-                {
-                    EC_KEY_set_public_key(p_key, p_pub_key);
-                    EC_KEY_set_private_key(p_key, p_priv_key);
-
-                    okay = true;
-                }
-
-                EC_POINT_free(p_pub_key);
-            }
-
-            BN_CTX_free(p_ctx);
-        }
-    }
-
-    return okay;
-}
-*/
