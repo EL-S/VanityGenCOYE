@@ -5,8 +5,7 @@ import time
 import ecdsa
 import binascii
 import hashlib
-
-#total = 0
+import os
 
 alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
@@ -140,31 +139,39 @@ def make_coinye_address(kg):
 ##    #print(process_name, count, time.time() - start_time)
 ##    print(process_name,total.value,count,time.time() - start_time,wallet_address,private_key)
 
-def find_vanity(process_name, vanity_prefix, seed=str(random.randbytes(256)), update_time=5, verbose=0):
-    wallet_address = 'ignore this junk its just a do while'
+def find_vanity(start_time, lock, process_name, vanity_prefix, update_time=5, verbose=0, seed=str(os.urandom(256))):
+    print(f"[{process_name}]: started with seed {seed}")
+
+    wallet_address = '00000000000000000000000000000000000000000000'
     kg = KeyGenerator()
     kg.seed_input(seed)
-
-    start_time = time.time()
-
-    while wallet_address[1:len(vanity_prefix)+1].lower() != vanity_prefix:
+    
+    while True:
+        if wallet_address[1:len(vanity_prefix)+1].lower() == vanity_prefix:
+            with lock:
+                print(f"[{process_name}]: Found in {time.time() - start_time.value:.2f}s - {wallet_address} {private_key}")
+                start_time.value = time.time()
         private_key,wallet_address = make_coinye_address(kg)
-    print(process_name,time.time() - start_time,wallet_address,private_key)
-
+    
 # now 3213 hashes a second at least
 if __name__ == "__main__":
 
     # Create a shared value for the processes to all use
     #total = mp.Value('i', 0)
     #lock = mp.Lock()
+    s_time = mp.Value('d', 0)
+    lock = mp.Lock()
+    with lock:
+        s_time.value = time.time()
+        print(f"Started at [{s_time.value}]")
 
     # Create process pool with four processes
     num_processes = mp.cpu_count()
     pool = mp.Pool(processes=num_processes) 
     processes = []
 
-    prefix = "gayfi"
-    seed = str(random.randbytes(256))#'jmLkYVbWfQpcWinsrxfOnMknrXGeAomHKjJ3pNtJop1K6SwLOcYkgK0wV8nve2A0a08QOQpi4GkbuZnCRHjZwj28j8GAfpHpddGTpVGHn42itcYgZ7423yyTwFSvY31vti4HC8YlzpcYhnlf1cvb7PYBa3QghemjWOtRIZjgvW7AQX8HRpeLxFib4VxhWqYE7FO7zZzBAaQu09WsbfBJTi5ZsM16JMSbEuHozKV68SFQHRnvYiT0hjQJ3ovYgdaZQPBwfgpLbLSvcrtlstQAA1JdUWC8bKH1owReM6xtMdgNhKtYQNQOb0XARQPhGbH4WJ3LssPbjjxB9sEogn83zGQQtfTWqtrLRL7hrRxODbTe0l0f6ThlW2oXS8xFEu3BhRNa6togtuOoKbsaPGE4cD7o0yzDJ90geuRo92YuPROhTE0bq8sLWpxdShdHwEp'
+    prefix = "fish"
+    #seed = str(os.urandom(256))
     update_time = 5
     verbose = 2
 
@@ -174,7 +181,7 @@ if __name__ == "__main__":
         process_name = f'P{i}'
         # Create the process, and connect it to the worker function
         #new_process = mp.Process(target=find_vanity, args=(total,lock,process_name,prefix,seed,update_time,verbose))
-        new_process = mp.Process(target=find_vanity, args=(process_name,prefix,seed,update_time,verbose))
+        new_process = mp.Process(target=find_vanity, args=(s_time,lock,process_name,prefix,update_time,verbose))
         # Add new process to the list of processes
         processes.append(new_process)
         # Start the process
