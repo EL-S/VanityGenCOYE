@@ -1,13 +1,16 @@
-import random
-import multiprocessing as mp
-import secrets
 import time
+import random
+import secrets
+import hashlib
 import ecdsa
 import binascii
-import hashlib
-import os
+import time
+import threading
+import multiprocessing as mp
 
 alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+global address_found
+address_found = False
 
 class KeyGenerator:
     def __init__(self):
@@ -117,76 +120,67 @@ def make_coinye_address(kg):
     WIF_address = privateKey_to_WIF_coinye(key)
     return WIF_address, compressed_address
 
-##def find_vanity(total, lock, process_name, vanity_prefix, seed=str(random.randbytes(256)), update_time=5, verbose=0):
-##    wallet_address = 'ignore this junk its just a do while'
-##    kg = KeyGenerator()
-##    kg.seed_input(seed)
-##
-##    count = 0
-##    last_count = 0
-##    start_time = time.time()
-##    this_time = time.time()
-##
-##    while wallet_address[1:len(vanity_prefix)+1].lower() != vanity_prefix:
-##        if (time.time() - this_time) > update_time:
-##            print(process_name,(count-last_count)/update_time,'H/s')
-##            this_time, last_count = time.time(), count
-##        count += 1
-##        with lock:
-##            total.value += 1
-##        private_key,wallet_address = make_coinye_address(kg)
-##    address_found = True
-##    #print(process_name, count, time.time() - start_time)
-##    print(process_name,total.value,count,time.time() - start_time,wallet_address,private_key)
 
-def find_vanity(start_time, lock, process_name, vanity_prefix, update_time=5, verbose=0, seed=str(os.urandom(256))):
-    print(f"[{process_name}]: started with seed {seed}")
+def find_vanity(vanity_prefix, update_time=5, verbose=0):
+    seed = 'jmLkYVbWfQpcWinsrxfOnMknrXGeAomHKjJ3pNtJop1K6SwLOcYkgK0wV8nve2A0a08QOQpi4GkbuZnCRHjZwj28j8GAfpHpddGTpVGHn42itcYgZ7423yyTwFSvY31vti4HC8YlzpcYhnlf1cvb7PYBa3QghemjWOtRIZjgvW7AQX8HRpeLxFib4VxhWqYE7FO7zZzBAaQu09WsbfBJTi5ZsM16JMSbEuHozKV68SFQHRnvYiT0hjQJ3ovYgdaZQPBwfgpLbLSvcrtlstQAA1JdUWC8bKH1owReM6xtMdgNhKtYQNQOb0XARQPhGbH4WJ3LssPbjjxB9sEogn83zGQQtfTWqtrLRL7hrRxODbTe0l0f6ThlW2oXS8xFEu3BhRNa6togtuOoKbsaPGE4cD7o0yzDJ90geuRo92YuPROhTE0bq8sLWpxdShdHwEp'
+    wallet_address = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
-    wallet_address = '00000000000000000000000000000000000000000000'
     kg = KeyGenerator()
     kg.seed_input(seed)
-    
-    while True:
-        if wallet_address[1:len(vanity_prefix)+1].lower() == vanity_prefix:
-            with lock:
-                print(f"[{process_name}]: Found in {time.time() - start_time.value:.2f}s - {wallet_address} {private_key}")
-                start_time.value = time.time()
+
+    count = 0
+    last_count = 0
+    start_time = time.time()
+    this_time = time.time()
+
+    while wallet_address[1:len(vanity_prefix)+1].lower() != vanity_prefix:
+        if (time.time() - this_time) > update_time:
+            s_print((count-last_count)/update_time,'H/s')
+            this_time, last_count = time.time(), count
+        count += 1
         private_key,wallet_address = make_coinye_address(kg)
-    
-# now 3213 hashes a second at least
-if __name__ == "__main__":
+        global address_found
+        if address_found:
+            return
+    address_found = True
+    s_print(count, time.time() - start_time)
+    s_print(wallet_address,private_key)
 
-    # Create a shared value for the processes to all use
-    #total = mp.Value('i', 0)
-    #lock = mp.Lock()
-    s_time = mp.Value('d', 0)
-    lock = mp.Lock()
-    with lock:
-        s_time.value = time.time()
-        print(f"Started at [{s_time.value}]")
 
-    # Create process pool with four processes
-    num_processes = mp.cpu_count()
-    pool = mp.Pool(processes=num_processes) 
-    processes = []
+# print using threaded lock
+s_print_lock = threading.Lock()
+def s_print(*a, **b):
+    with s_print_lock:
+        print(*a, **b)
 
-    prefix = input("Please enter a prefix: ").strip()
-    
-    custom_seed = input("Custom seed(Press enter if random): ").strip()
-    update_time = 5
-    verbose = 2
+def thread_runner(vanity_prefix, update_time, verbose):
+    # if address not alread found
+    x = mp.Process(target=find_vanity, args=(vanity_prefix, update_time, verbose))
+    x.start()
 
-    # Initiate the worker processes
-    for i in range(num_processes):
-        # Set process name
-        process_name = f'P{i}'
-        # Create the process, and connect it to the worker function
-        #new_process = mp.Process(target=find_vanity, args=(total,lock,process_name,prefix,seed,update_time,verbose))
-        if custom_seed:
-            new_process = mp.Process(target=find_vanity, args=(s_time,lock,process_name,prefix,update_time,verbose,custom_seed))
-        else:
-            new_process = mp.Process(target=find_vanity, args=(s_time,lock,process_name,prefix,update_time,verbose))
-        # Add new process to the list of processes
-        processes.append(new_process)
-        # Start the process
-        new_process.start()
+def start_threaded(vanity_prefix, threads=mp.cpu_count(), update_time=5, verbose=0):
+    """ start threads looking for a vanity prefix
+    max_threads - maximum number if threads to scan with
+    update_time - seconds that the running hashrate will print
+    verbose - 0 no printing
+              1 print loading/finishing hashrate
+              2 print running hashrate
+    """
+    # threading semaphore for managing threads
+    testing_sema = threading.BoundedSemaphore(threads)
+
+    # set new addressd boi to False
+    address_found = False
+
+    # start the threads
+    for _ in range(threads):
+        thread_runner(vanity_prefix, verbose=verbose, update_time=update_time)
+    if verbose > 1:
+        s_print("Finished Loading")
+    while len(mp.active_children()) == threads:
+        s_print("waiting")
+        time.sleep(10)
+    print(mp.active_children())
+
+if __name__ == '__main__':
+    start_threaded("gay", verbose=2)
